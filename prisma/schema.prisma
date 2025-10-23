@@ -1,0 +1,78 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String   @id @default(uuid())
+  telegramId BigInt   @unique @map("telegram_id")
+  username   String?
+  firstName  String?  @map("first_name")
+  lastName   String?  @map("last_name")
+  customName String?  @map("custom_name")
+  score      BigInt   @default(0)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  clicks     Click[]
+  sessions   Session[]
+
+  @@index([telegramId])
+  @@index([score])
+  @@map("users")
+}
+
+model Click {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  count     Int
+  timestamp DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([timestamp])
+  @@map("clicks")
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  token     String   @unique
+  isActive  Boolean  @default(true) @map("is_active")
+  lastSeen  DateTime @default(now()) @map("last_seen")
+  createdAt DateTime @default(now()) @map("created_at")
+  expiresAt DateTime @map("expires_at")
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+model LeaderboardSnapshot {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  username  String?
+  score     BigInt
+  rank      Int
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([rank])
+  @@index([createdAt])
+  @@map("leaderboard_snapshots")
+}
