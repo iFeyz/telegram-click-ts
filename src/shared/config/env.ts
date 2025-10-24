@@ -58,4 +58,7 @@ export const config = {
     concurrency: getEnvNumber('WORKER_CONCURRENCY', 5),
     maxRetries: getEnvNumber('WORKER_MAX_RETRIES', 3),
   },
+  queue: {
+    channelTrackingTtlSeconds: getEnvNumber('QUEUE_CHANNEL_TTL_SECONDS', 300),
+  },
 } as const;

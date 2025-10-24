@@ -1,5 +1,6 @@
 import type { InlineKeyboard } from 'grammy';
 import type { MessageQueueService } from './MessageQueueService';
+import type { ActionChannel } from '../../domain/value-objects/ActionChannel';
 
 export class QueuedMessageService {
   private messageQueue: MessageQueueService;
@@ -8,9 +9,6 @@ export class QueuedMessageService {
     this.messageQueue = messageQueue;
   }
 
-  /**
-   * Send a general message through the queue (rate-limited to 25 msg/sec)
-   */
   async sendMessage(
     chatId: string,
     message: string,
@@ -18,17 +16,15 @@ export class QueuedMessageService {
       parse_mode?: 'HTML' | 'Markdown';
       reply_markup?: InlineKeyboard;
     },
+    channel?: ActionChannel,
   ): Promise<void> {
     try {
-      await this.messageQueue.queueMessage(chatId, message, options);
+      await this.messageQueue.queueMessage(chatId, message, options, 0, channel);
     } catch (error) {
       console.error(`[QueuedMessage] Failed to queue message for ${chatId}:`, error);
     }
   }
 
-  /**
-   * Send message with higher priority (for important system messages)
-   */
   async sendPriorityMessage(
     chatId: string,
     message: string,
@@ -36,6 +32,7 @@ export class QueuedMessageService {
       parse_mode?: 'HTML' | 'Markdown';
       reply_markup?: InlineKeyboard | { force_reply: boolean; input_field_placeholder?: string };
     },
+    channel?: ActionChannel,
   ): Promise<void> {
     try {
       await this.messageQueue.queueMessage(
@@ -46,15 +43,13 @@ export class QueuedMessageService {
           reply_markup: options?.reply_markup as InlineKeyboard,
         },
         10,
+        channel,
       );
     } catch (error) {
       console.error(`[QueuedMessage] Failed to queue priority message for ${chatId}:`, error);
     }
   }
 
-  /**
-   * Send notification messages (lower priority)
-   */
   async sendNotification(
     chatId: string,
     message: string,
@@ -62,10 +57,13 @@ export class QueuedMessageService {
       parse_mode?: 'HTML' | 'Markdown';
       reply_markup?: InlineKeyboard;
     },
+    channel?: ActionChannel,
   ): Promise<void> {
     try {
-      await this.messageQueue.queueMessage(chatId, message, options, -1);
-    } catch (error) {}
+      await this.messageQueue.queueMessage(chatId, message, options, -1, channel);
+    } catch (error) {
+      console.error(`[QueuedMessage] Failed to queue notification for ${chatId}:`, error);
+    }
   }
 
   async broadcastMessage(
@@ -80,9 +78,6 @@ export class QueuedMessageService {
     await this.messageQueue.broadcastMessage(chatIds, message, options);
   }
 
-  /**
-   * Send leaderboard updates (batched and queued)
-   */
   async sendLeaderboardUpdate(
     chatId: string,
     leaderboard: string,
@@ -90,10 +85,13 @@ export class QueuedMessageService {
       parse_mode?: 'HTML' | 'Markdown';
       reply_markup?: InlineKeyboard;
     },
+    channel?: ActionChannel,
   ): Promise<void> {
     try {
-      await this.messageQueue.queueMessage(chatId, leaderboard, options, -2);
-    } catch (error) {}
+      await this.messageQueue.queueMessage(chatId, leaderboard, options, -2, channel);
+    } catch (error) {
+      console.error(`[QueuedMessage] Failed to queue leaderboard update for ${chatId}:`, error);
+    }
   }
 
   async sendError(
@@ -102,42 +100,45 @@ export class QueuedMessageService {
     options?: {
       reply_markup?: InlineKeyboard;
     },
+    channel?: ActionChannel,
   ): Promise<void> {
     const message = `❌ <b>Error</b>\n\n${errorMessage}`;
     try {
-      await this.messageQueue.queueMessage(chatId, message, { ...options, parse_mode: 'HTML' }, 5);
+      await this.messageQueue.queueMessage(
+        chatId,
+        message,
+        { ...options, parse_mode: 'HTML' },
+        5,
+        channel,
+      );
     } catch (error) {
       console.error(`[QueuedMessage] Failed to send error message to ${chatId}:`, error);
     }
   }
 
-  /**
-   * Queue a navigation action (button clicks, menu navigation, etc.)
-   */
   async queueNavigationAction(
     chatId: string,
     action: () => Promise<void>,
     description: string = '',
     priority: number = 0,
+    channel?: ActionChannel,
   ): Promise<void> {
     try {
-      await this.messageQueue.queueAction(chatId, action, description, priority);
+      await this.messageQueue.queueAction(chatId, action, description, priority, channel);
     } catch (error) {
       console.error(`[QueuedMessage] Failed to queue action for ${chatId}:`, error);
     }
   }
 
-  /**
-   * Queue a message edit (for inline keyboard updates)
-   */
   async queueMessageEdit(
     chatId: string,
     editAction: () => Promise<void>,
     description: string = '',
     priority: number = 0,
+    channel?: ActionChannel,
   ): Promise<void> {
     try {
-      await this.messageQueue.queueEdit(chatId, editAction, description, priority);
+      await this.messageQueue.queueEdit(chatId, editAction, description, priority, channel);
     } catch (error) {
       console.error(`[QueuedMessage] Failed to queue edit for ${chatId}:`, error);
     }
