@@ -1,4 +1,5 @@
 import { randomBytes } from 'crypto';
+import { InvalidClickError } from '../../shared/errors';
 
 export class Session {
   public readonly id: string;
@@ -75,7 +76,7 @@ export class Session {
    * Increment click count
    */
   addClicks(count: number): void {
-    if (count < 0) throw new Error('Click count cannot be negative');
+    if (count < 0) throw new InvalidClickError('Click count cannot be negative');
     this.clickCount += count;
     this.touch();
   }

@@ -18,6 +18,6 @@ module.exports = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
-  setupFilesAfterEnv: ['<rootDir>/src/test/setup.ts'],
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.redis-mock.js', '<rootDir>/src/test/setup.ts'],
   verbose: true,
 };

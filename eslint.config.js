@@ -5,6 +5,7 @@ const prettier = require('eslint-plugin-prettier');
 module.exports = [
   {
     files: ['src/**/*.ts', 'src/**/*.tsx'],
+    ignores: ['src/test/**'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -26,6 +27,6 @@ module.exports = [
     },
   },
   {
-    ignores: ['node_modules/**', 'dist/**', 'coverage/**', '*.config.js', 'src/generated/**'],
+    ignores: ['node_modules/**', 'dist/**', 'coverage/**', '*.config.js', 'src/generated/**', 'src/test/**'],
   },
 ];

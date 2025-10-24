@@ -1,3 +1,5 @@
+import { InvalidClickError } from '../../shared/errors';
+
 export class User {
   public readonly id: string;
   public readonly telegramId: bigint;
@@ -31,9 +33,6 @@ export class User {
     this.updatedAt = params.updatedAt ?? new Date();
   }
 
-  /**
-   * Get display name for the user
-   */
   getDisplayName(): string {
     if (this.customName) return this.customName;
     if (this.username) return `@${this.username}`;
@@ -43,12 +42,9 @@ export class User {
     return `User${this.telegramId}`;
   }
 
-  /**
-   * Add clicks to user score
-   */
   addClicks(count: number): void {
     if (count < 0) {
-      throw new Error('Click count cannot be negative');
+      throw new InvalidClickError('Click count cannot be negative');
     }
     this.score = this.score + BigInt(count);
     this.updatedAt = new Date();

@@ -1,3 +1,5 @@
+import { ValidationError, InvalidClickError } from '../../shared/errors';
+
 export class Click {
   public readonly userId: string;
   public readonly count: number;
@@ -13,13 +15,13 @@ export class Click {
 
   private validateCount(count: number): void {
     if (!Number.isInteger(count)) {
-      throw new Error('Click count must be an integer');
+      throw new ValidationError({ count: 'Must be an integer' });
     }
     if (count <= 0) {
-      throw new Error('Click count must be positive');
+      throw new InvalidClickError('Click count must be positive');
     }
     if (count > 100) {
-      throw new Error('Click count cannot exceed 100 per batch');
+      throw new InvalidClickError('Click count cannot exceed 100 per batch');
     }
   }
 

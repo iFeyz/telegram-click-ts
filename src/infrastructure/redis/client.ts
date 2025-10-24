@@ -1,5 +1,6 @@
 import Redis from 'ioredis';
 import { config } from '../../shared/config/env';
+import { RedisError } from '../../shared/errors';
 
 export class RedisClient {
   private client: Redis | null = null;
@@ -48,7 +49,7 @@ export class RedisClient {
 
   public getClient(): Redis {
     if (!this.client) {
-      throw new Error('Redis client not initialized. Call connect() first.');
+      throw new RedisError('Redis client not initialized. Call connect() first.');
     }
     return this.client;
   }

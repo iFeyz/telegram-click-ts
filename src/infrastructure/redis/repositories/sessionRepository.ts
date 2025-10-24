@@ -1,6 +1,7 @@
 import type Redis from 'ioredis';
 import { redisClient } from '../client';
 import { config } from '../../../shared/config/env';
+import { InvalidSessionError } from '../../../shared/errors';
 import type {
   ISessionRepository,
   SessionData,
@@ -132,7 +133,7 @@ export class SessionRedisRepository implements ISessionRepository {
     const session = await this.getSession(token);
 
     if (!session) {
-      throw new Error('Session not found');
+      throw new InvalidSessionError();
     }
 
     session.clickCount += increment;
