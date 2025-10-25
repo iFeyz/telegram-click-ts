@@ -8,43 +8,34 @@
  */
 
 export const BotEvents = {
-
   BOT_STARTED: 'bot.started',
   BOT_STOPPED: 'bot.stopped',
   BOT_ERROR: 'bot.error',
 
-  
   REQUEST_RECEIVED: 'bot.request',
   REQUEST_COMPLETED: 'bot.response',
   REQUEST_FAILED: 'bot.request.failed',
 
-  
   USER_JOINED: 'user.joined',
   USER_BLOCKED: 'user.blocked',
 
-  
   CLICK_PERFORMED: 'click.performed',
   CLICK_FAILED: 'click.failed',
 
-  
   LEADERBOARD_VIEWED: 'leaderboard.viewed',
   LEADERBOARD_LOADED: 'leaderboard.loaded',
 
-  
   STATS_VIEWED: 'stats.viewed',
   STATS_CALCULATED: 'stats.calculated',
 
-  
   DB_QUERY_SUCCESS: 'db.query.success',
   DB_QUERY_FAILED: 'db.query.failed',
 
-  
   CACHE_HIT: 'cache.hit',
   CACHE_MISS: 'cache.miss',
   CACHE_SET: 'cache.set',
   CACHE_DELETED: 'cache.deleted',
 
-  
   RATE_LIMIT_HIT: 'rate_limit.hit',
   RATE_LIMIT_APPROACHING: 'rate_limit.approaching',
 } as const;
@@ -100,13 +91,11 @@ export function isStatsAction(command: string, callbackData?: string): boolean {
 }
 
 export function parseCommandName(messageText?: string, callbackData?: string): string {
-
   if (messageText) {
     const command = messageText.split(' ')[0];
     return command || CommandNames.UNKNOWN;
   }
 
-  
   if (callbackData) {
     const parts = callbackData.split(':');
     const action = parts[0];
@@ -115,13 +104,11 @@ export function parseCommandName(messageText?: string, callbackData?: string): s
       return CommandNames.UNKNOWN;
     }
 
-  
     if (action in CallbackToCommand) {
       const mapped = CallbackToCommand[action as keyof typeof CallbackToCommand];
       return mapped || CommandNames.UNKNOWN;
     }
 
-  
     if (parts.length === 1) {
       if (callbackData in CallbackToCommand) {
         const mapped = CallbackToCommand[callbackData as keyof typeof CallbackToCommand];
@@ -130,7 +117,6 @@ export function parseCommandName(messageText?: string, callbackData?: string): s
       return callbackData;
     }
 
-  
     return `callback:${action}`;
   }
 

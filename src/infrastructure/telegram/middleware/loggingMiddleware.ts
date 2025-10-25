@@ -18,20 +18,14 @@ export const loggingMiddleware: BotMiddleware = async (ctx, next) => {
 
   const command = parseCommandName(messageText, callbackData);
 
-  if (observabilityConfig.enabled) {
-    logger.info({
-      event: BotEvents.REQUEST_RECEIVED,
-      userId: from?.id,
-      username: from?.username,
-      chatType: chat?.type,
-      command,
-      callbackData,
-    });
-  } else {
-    console.log(
-      `[${new Date().toISOString()}] Update from ${from?.username || from?.id} in ${chat?.type}`,
-    );
-  }
+  logger.info({
+    event: BotEvents.REQUEST_RECEIVED,
+    userId: from?.id,
+    username: from?.username,
+    chatType: chat?.type,
+    command,
+    callbackData,
+  });
 
   let success = true;
   try {
@@ -71,8 +65,6 @@ export const loggingMiddleware: BotMiddleware = async (ctx, next) => {
           command,
         });
       }
-    } else {
-      console.log(`[${new Date().toISOString()}] Processed in ${duration * 1000}ms`);
     }
   }
 };

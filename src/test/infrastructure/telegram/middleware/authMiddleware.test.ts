@@ -3,8 +3,19 @@ import { container } from '../../../../shared/container/DIContainer';
 import { User } from '../../../../domain/entities/User';
 import { Session } from '../../../../domain/entities/Session';
 import type { BotContext } from '../../../../infrastructure/telegram/types';
+import { logger } from '../../../../infrastructure/observability/logger';
 
 jest.mock('../../../../shared/container/DIContainer');
+jest.mock('../../../../infrastructure/observability/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    trace: jest.fn(),
+    fatal: jest.fn(),
+  },
+}));
 
 const createMockContext = (overrides: Partial<BotContext> = {}): BotContext => {
   return {
@@ -97,8 +108,6 @@ describe('authMiddleware', () => {
       mockPrisma.user.findUnique.mockResolvedValueOnce(null);
       mockPrisma.user.create.mockResolvedValueOnce(newUser);
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
       await authMiddleware(ctx, mockNext);
 
       expect(mockPrisma.user.findUnique).toHaveBeenCalledWith({
@@ -113,10 +122,13 @@ describe('authMiddleware', () => {
           score: BigInt(0),
         },
       });
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('New user registered'));
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'user.joined',
+          userId: 'user-1',
+        }),
+      );
       expect(ctx.session.user).toBeInstanceOf(User);
-
-      consoleLogSpy.mockRestore();
     });
 
     it('should load existing user from database', async () => {

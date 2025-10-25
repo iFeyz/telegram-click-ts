@@ -1,6 +1,7 @@
 import type { PrismaClient } from '../../generated/prisma';
 import type { RedisClient } from '../../infrastructure/redis/client';
 import { REDIS_KEYS, GAME_SETTINGS } from '../../shared/constants';
+import { logger } from '../../infrastructure/observability/logger';
 
 /**
  * Worker that periodically saves pending clicks from Redis to the database
@@ -23,12 +24,12 @@ export class BatchSaveWorker {
    */
   start(): void {
     if (this.isRunning) {
-      console.log('[BatchSaveWorker] Already running');
+      logger.warn({ message: 'BatchSaveWorker already running' });
       return;
     }
 
     this.isRunning = true;
-    console.log('[BatchSaveWorker] Starting with interval:', this.intervalMs, 'ms');
+    logger.info({ message: 'BatchSaveWorker starting', intervalMs: this.intervalMs });
 
     void this.processBatch();
 
@@ -52,7 +53,7 @@ export class BatchSaveWorker {
     }
 
     await this.processBatch();
-    console.log('[BatchSaveWorker] Stopped');
+    logger.info({ message: 'BatchSaveWorker stopped' });
   }
 
   /**
@@ -74,7 +75,7 @@ export class BatchSaveWorker {
         return;
       }
 
-      console.log(`[BatchSaveWorker] Processing ${keys.length} users with pending clicks`);
+      logger.debug({ message: 'Processing users with pending clicks', userCount: keys.length });
 
       for (let i = 0; i < keys.length; i += this.batchSize) {
         const batch = keys.slice(i, i + this.batchSize);
@@ -82,9 +83,12 @@ export class BatchSaveWorker {
       }
 
       const duration = Date.now() - startTime;
-      console.log(`[BatchSaveWorker] Batch processed in ${duration}ms`);
+      logger.debug({ message: 'Batch processed', durationMs: duration });
     } catch (error) {
-      console.error('[BatchSaveWorker] Error processing batch:', error);
+      logger.error({
+        message: 'Error processing batch',
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -132,9 +136,12 @@ export class BatchSaveWorker {
         }
       });
 
-      console.log(`[BatchSaveWorker] Saved ${updates.length} user updates to database`);
+      logger.info({ message: 'Saved user updates to database', updateCount: updates.length });
     } catch (error) {
-      console.error('[BatchSaveWorker] Database transaction failed:', error);
+      logger.error({
+        message: 'Database transaction failed',
+        error: error instanceof Error ? error.message : String(error),
+      });
 
       for (const { userId, clicks } of updates) {
         await client.incrby(`${REDIS_KEYS.CLICK_PENDING}${userId}`, clicks);
@@ -148,9 +155,9 @@ export class BatchSaveWorker {
    * Force save all pending data (for graceful shutdown)
    */
   async forceSave(): Promise<void> {
-    console.log('[BatchSaveWorker] Force saving all pending data...');
+    logger.info({ message: 'Force saving all pending data' });
     await this.processBatch();
-    console.log('[BatchSaveWorker] Force save completed');
+    logger.info({ message: 'Force save completed' });
   }
 
   /**

@@ -2,8 +2,20 @@ import { BatchSaveWorker } from '../../../application/workers/BatchSaveWorker';
 import type { PrismaClient } from '../../../generated/prisma';
 import { redisClient } from '../../../infrastructure/redis/client';
 import { REDIS_KEYS } from '../../../shared/constants';
+import { logger } from '../../../infrastructure/observability/logger';
 
 jest.mock('../../../generated/prisma');
+
+jest.mock('../../../infrastructure/observability/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    trace: jest.fn(),
+    fatal: jest.fn(),
+  },
+}));
 
 describe('BatchSaveWorker', () => {
   let worker: BatchSaveWorker;
@@ -40,39 +52,36 @@ describe('BatchSaveWorker', () => {
 
   describe('start and stop', () => {
     it('should start the worker', () => {
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
       worker.start();
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Starting with interval'),
-        expect.any(Number),
-        'ms',
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'BatchSaveWorker starting',
+          intervalMs: expect.any(Number),
+        }),
       );
-
-      consoleLogSpy.mockRestore();
     });
 
     it('should not start twice', () => {
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
       worker.start();
       worker.start();
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Already running'));
-
-      consoleLogSpy.mockRestore();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'BatchSaveWorker already running',
+        }),
+      );
     });
 
     it('should stop the worker', async () => {
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
       worker.start();
       await worker.stop();
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Stopped'));
-
-      consoleLogSpy.mockRestore();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'BatchSaveWorker stopped',
+        }),
+      );
     });
 
     it('should do nothing when stopping if not running', async () => {
@@ -102,19 +111,15 @@ describe('BatchSaveWorker', () => {
     });
 
     it('should not process if no pending clicks exist', async () => {
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
       worker.start();
       await new Promise((resolve) => setTimeout(resolve, 100));
       await worker.stop();
 
-      expect(consoleLogSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('Processing'),
-        expect.anything(),
-        expect.stringContaining('users with pending clicks'),
+      expect(logger.info).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.stringContaining('Processing'),
+        }),
       );
-
-      consoleLogSpy.mockRestore();
     });
 
     it('should handle errors gracefully', async () => {
@@ -123,18 +128,15 @@ describe('BatchSaveWorker', () => {
 
       mockPrisma.$transaction.mockRejectedValueOnce(new Error('Database error'));
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
       worker.start();
       await new Promise((resolve) => setTimeout(resolve, 100));
       await worker.stop();
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Error processing batch'),
-        expect.any(Error),
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Error processing batch',
+        }),
       );
-
-      consoleErrorSpy.mockRestore();
     });
 
     it('should rollback clicks to Redis on database failure', async () => {
@@ -251,8 +253,6 @@ describe('BatchSaveWorker', () => {
       const client = redisClient.getClient();
       await client.set(`${REDIS_KEYS.CLICK_PENDING}user-1`, '50');
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
       mockPrisma.$transaction.mockImplementation(async (callback: any) => {
         return await callback({
           user: { update: jest.fn() },
@@ -262,12 +262,16 @@ describe('BatchSaveWorker', () => {
 
       await worker.forceSave();
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Force saving all pending data'),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Force saving all pending data',
+        }),
       );
-      expect(consoleLogSpy).toHaveBeenCalledWith(expect.stringContaining('Force save completed'));
-
-      consoleLogSpy.mockRestore();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Force save completed',
+        }),
+      );
     });
 
     it('should work even when worker is not running', async () => {
@@ -431,13 +435,9 @@ describe('BatchSaveWorker', () => {
 
       mockPrisma.$transaction.mockRejectedValueOnce(new Error('Transaction failed'));
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
       await worker.forceSave();
 
-      expect(consoleErrorSpy).toHaveBeenCalled();
-
-      consoleErrorSpy.mockRestore();
+      expect(logger.error).toHaveBeenCalled();
     });
 
     it('should handle concurrent force saves', async () => {
@@ -464,8 +464,6 @@ describe('BatchSaveWorker', () => {
       const client = redisClient.getClient();
       await client.set(`${REDIS_KEYS.CLICK_PENDING}user-1`, '100');
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
       mockPrisma.$transaction.mockImplementation(async (callback: any) => {
         return await callback({
           user: { update: jest.fn() },
@@ -475,11 +473,12 @@ describe('BatchSaveWorker', () => {
 
       await worker.forceSave();
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Batch processed in \d+ms/),
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Batch processed',
+          durationMs: expect.any(Number),
+        }),
       );
-
-      consoleLogSpy.mockRestore();
     });
 
     it('should report number of users processed', async () => {
@@ -487,8 +486,6 @@ describe('BatchSaveWorker', () => {
       await client.set(`${REDIS_KEYS.CLICK_PENDING}user-1`, '50');
       await client.set(`${REDIS_KEYS.CLICK_PENDING}user-2`, '75');
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-
       mockPrisma.$transaction.mockImplementation(async (callback: any) => {
         return await callback({
           user: { update: jest.fn() },
@@ -498,11 +495,12 @@ describe('BatchSaveWorker', () => {
 
       await worker.forceSave();
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Processing 2 users with pending clicks'),
+      expect(logger.debug).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Processing users with pending clicks',
+          userCount: 2,
+        }),
       );
-
-      consoleLogSpy.mockRestore();
     });
   });
 });

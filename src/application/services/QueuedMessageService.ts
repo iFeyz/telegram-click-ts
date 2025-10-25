@@ -1,6 +1,7 @@
 import type { InlineKeyboard } from 'grammy';
 import type { MessageQueueService } from './MessageQueueService';
 import type { ActionChannel } from '../../domain/value-objects/ActionChannel';
+import { logger } from '../../infrastructure/observability/logger';
 
 export class QueuedMessageService {
   private messageQueue: MessageQueueService;
@@ -21,7 +22,11 @@ export class QueuedMessageService {
     try {
       await this.messageQueue.queueMessage(chatId, message, options, 0, channel);
     } catch (error) {
-      console.error(`[QueuedMessage] Failed to queue message for ${chatId}:`, error);
+      logger.error({
+        message: 'Failed to queue message',
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -46,7 +51,11 @@ export class QueuedMessageService {
         channel,
       );
     } catch (error) {
-      console.error(`[QueuedMessage] Failed to queue priority message for ${chatId}:`, error);
+      logger.error({
+        message: 'Failed to queue priority message',
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -62,7 +71,11 @@ export class QueuedMessageService {
     try {
       await this.messageQueue.queueMessage(chatId, message, options, -1, channel);
     } catch (error) {
-      console.error(`[QueuedMessage] Failed to queue notification for ${chatId}:`, error);
+      logger.error({
+        message: 'Failed to queue notification',
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -74,7 +87,7 @@ export class QueuedMessageService {
       reply_markup?: InlineKeyboard;
     },
   ): Promise<void> {
-    console.warn(`[QueuedMessage] Broadcasting to ${chatIds.length} users`);
+    logger.info({ message: 'Broadcasting message', userCount: chatIds.length });
     await this.messageQueue.broadcastMessage(chatIds, message, options);
   }
 
@@ -90,7 +103,11 @@ export class QueuedMessageService {
     try {
       await this.messageQueue.queueMessage(chatId, leaderboard, options, -2, channel);
     } catch (error) {
-      console.error(`[QueuedMessage] Failed to queue leaderboard update for ${chatId}:`, error);
+      logger.error({
+        message: 'Failed to queue leaderboard update',
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -112,7 +129,11 @@ export class QueuedMessageService {
         channel,
       );
     } catch (error) {
-      console.error(`[QueuedMessage] Failed to send error message to ${chatId}:`, error);
+      logger.error({
+        message: 'Failed to send error message',
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -126,7 +147,11 @@ export class QueuedMessageService {
     try {
       await this.messageQueue.queueAction(chatId, action, description, priority, channel);
     } catch (error) {
-      console.error(`[QueuedMessage] Failed to queue action for ${chatId}:`, error);
+      logger.error({
+        message: 'Failed to queue action',
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -140,7 +165,11 @@ export class QueuedMessageService {
     try {
       await this.messageQueue.queueEdit(chatId, editAction, description, priority, channel);
     } catch (error) {
-      console.error(`[QueuedMessage] Failed to queue edit for ${chatId}:`, error);
+      logger.error({
+        message: 'Failed to queue edit',
+        chatId,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
@@ -172,7 +201,7 @@ export class QueuedMessageService {
 
   async pauseNonCritical(): Promise<void> {
     await this.messageQueue.pause();
-    console.warn('[QueuedMessage] Paused non-critical messages due to high load');
+    logger.warn({ message: 'Paused non-critical messages due to high load' });
   }
 
   /**
@@ -180,6 +209,6 @@ export class QueuedMessageService {
    */
   async resume(): Promise<void> {
     await this.messageQueue.resume();
-    console.warn('[QueuedMessage] Resumed message processing');
+    logger.info({ message: 'Resumed message processing' });
   }
 }

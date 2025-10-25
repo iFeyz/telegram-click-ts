@@ -1,12 +1,13 @@
 import http from 'http';
 import { metricsRegistry } from './metrics';
 import { observabilityConfig } from '../../shared/config/observability';
+import { logger } from './logger';
 
 let server: http.Server | null = null;
 
 export function startMetricsServer(): void {
   if (!observabilityConfig.prometheus.enabled) {
-    console.log('Metrics server disabled');
+    logger.info({ message: 'Metrics server disabled' });
     return;
   }
 
@@ -23,7 +24,7 @@ export function startMetricsServer(): void {
 
   const port = observabilityConfig.prometheus.port;
   server.listen(port, () => {
-    console.log(`Metrics server listening on http://localhost:${port}/metrics`);
+    logger.info({ message: `Metrics server listening on http://localhost:${port}/metrics`, port });
   });
 }
 

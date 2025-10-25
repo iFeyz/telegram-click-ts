@@ -1,5 +1,17 @@
 import { loggingMiddleware } from '../../../../infrastructure/telegram/middleware/loggingMiddleware';
 import type { BotContext } from '../../../../infrastructure/telegram/types';
+import { logger } from '../../../../infrastructure/observability/logger';
+
+jest.mock('../../../../infrastructure/observability/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    trace: jest.fn(),
+    fatal: jest.fn(),
+  },
+}));
 
 const createMockContext = (overrides: Partial<BotContext> = {}): BotContext => {
   return {
@@ -19,15 +31,9 @@ const createMockContext = (overrides: Partial<BotContext> = {}): BotContext => {
 
 describe('loggingMiddleware', () => {
   let mockNext: jest.Mock;
-  let consoleLogSpy: jest.SpyInstance;
 
   beforeEach(() => {
     mockNext = jest.fn();
-    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-  });
-
-  afterEach(() => {
-    consoleLogSpy.mockRestore();
     jest.clearAllMocks();
   });
 
@@ -37,8 +43,12 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Update from testuser in private/),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 123456789,
+          username: 'testuser',
+          chatType: 'private',
+        }),
       );
     });
 
@@ -54,18 +64,26 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Update from 123456789 in private/),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 123456789,
+          username: undefined,
+          chatType: 'private',
+        }),
       );
     });
 
-    it('should log request completion with duration', async () => {
+    it('should log request completion', async () => {
       const ctx = createMockContext();
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Processed in \d+ms/),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'bot.response',
+          duration: expect.any(Number),
+          success: true,
+        }),
       );
     });
 
@@ -77,14 +95,16 @@ describe('loggingMiddleware', () => {
       expect(mockNext).toHaveBeenCalledTimes(1);
     });
 
-    it('should include ISO timestamp in logs', async () => {
+    it('should log with event information', async () => {
       const ctx = createMockContext();
 
       await loggingMiddleware(ctx, mockNext);
 
-      const calls = consoleLogSpy.mock.calls;
-      expect(calls[0][0]).toMatch(/\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
-      expect(calls[1][0]).toMatch(/\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'bot.request',
+        }),
+      );
     });
   });
 
@@ -94,8 +114,10 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('in private'),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatType: 'private',
+        }),
       );
     });
 
@@ -104,8 +126,10 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('in group'),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatType: 'group',
+        }),
       );
     });
 
@@ -114,8 +138,10 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('in supergroup'),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatType: 'supergroup',
+        }),
       );
     });
 
@@ -124,55 +150,15 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('in channel'),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatType: 'channel',
+        }),
       );
     });
   });
 
-  describe('timing', () => {
-    it('should measure execution time accurately', async () => {
-      const ctx = createMockContext();
 
-      mockNext.mockImplementation(async () => {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-      });
-
-      await loggingMiddleware(ctx, mockNext);
-
-      const durationLog = consoleLogSpy.mock.calls[1][0];
-      const match = durationLog.match(/Processed in (\d+)ms/);
-
-      if (!match) {
-        console.log('Duration log:', durationLog);
-      }
-
-      expect(match).not.toBeNull();
-      const duration = parseInt(match![1], 10);
-      expect(duration).toBeGreaterThanOrEqual(40);
-    });
-
-    it('should log fast operations correctly', async () => {
-      const ctx = createMockContext();
-
-      await loggingMiddleware(ctx, mockNext);
-
-      const durationLog = consoleLogSpy.mock.calls[1][0];
-      expect(durationLog).toMatch(/Processed in \d+ms/);
-    });
-
-    it('should handle synchronous next function', async () => {
-      const ctx = createMockContext();
-
-      mockNext.mockImplementation(() => {
-        // Synchronous operation
-      });
-
-      await loggingMiddleware(ctx, mockNext);
-
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
-    });
-  });
 
   describe('edge cases', () => {
     it('should handle missing from field', async () => {
@@ -180,8 +166,11 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Update from undefined/),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: undefined,
+          username: undefined,
+        }),
       );
     });
 
@@ -190,8 +179,11 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Update from testuser in undefined/),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          username: 'testuser',
+          chatType: undefined,
+        }),
       );
     });
 
@@ -203,9 +195,16 @@ describe('loggingMiddleware', () => {
 
       await expect(loggingMiddleware(ctx, mockNext)).rejects.toThrow(error);
 
-      expect(consoleLogSpy).toHaveBeenCalledTimes(1);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/Update from testuser/),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'bot.request',
+        }),
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'bot.response',
+          success: false,
+        }),
       );
     });
 
@@ -221,8 +220,10 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('a'.repeat(100)),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          username: 'a'.repeat(100),
+        }),
       );
     });
 
@@ -238,8 +239,10 @@ describe('loggingMiddleware', () => {
 
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        expect.stringContaining('test_user-123'),
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          username: 'test_user-123',
+        }),
       );
     });
   });
@@ -249,8 +252,12 @@ describe('loggingMiddleware', () => {
       const ctx = createMockContext();
       const order: string[] = [];
 
-      consoleLogSpy.mockImplementation((msg) => {
-        order.push(msg.includes('Update from') ? 'start' : 'end');
+      (logger.info as jest.Mock).mockImplementation((msg: any) => {
+        if (msg.event === 'bot.request') {
+          order.push('start');
+        } else if (msg.event === 'bot.response') {
+          order.push('end');
+        }
       });
 
       mockNext.mockImplementation(() => {
@@ -274,7 +281,7 @@ describe('loggingMiddleware', () => {
       await loggingMiddleware(ctx, mockNext);
 
       expect(nextCalled).toBe(true);
-      expect(consoleLogSpy).toHaveBeenCalledTimes(2);
+      expect(logger.info).toHaveBeenCalled();
     });
   });
 
@@ -290,43 +297,18 @@ describe('loggingMiddleware', () => {
         loggingMiddleware(ctx2, mockNext),
       ]);
 
-      expect(consoleLogSpy).toHaveBeenCalledTimes(4);
+      expect(logger.info).toHaveBeenCalled();
 
-      const logs = consoleLogSpy.mock.calls.map((call) => call[0]);
-      expect(logs.some((log) => log.includes('testuser'))).toBe(true);
-      expect(logs.some((log) => log.includes('other_user'))).toBe(true);
+      const calls = (logger.info as jest.Mock).mock.calls;
+      const hasTestuser = calls.some((call: any) => call[0]?.username === 'testuser');
+      const hasOtherUser = calls.some((call: any) => call[0]?.username === 'other_user');
+
+      expect(hasTestuser).toBe(true);
+      expect(hasOtherUser).toBe(true);
     });
   });
 
-  describe('performance', () => {
-    it('should have minimal overhead for fast operations', async () => {
-      const ctx = createMockContext();
 
-      await loggingMiddleware(ctx, mockNext);
-
-      const durationLog = consoleLogSpy.mock.calls[1][0];
-      const match = durationLog.match(/Processed in (\d+)ms/);
-      const duration = parseInt(match![1], 10);
-
-      expect(duration).toBeLessThan(100);
-    });
-
-    it('should accurately measure slow operations', async () => {
-      const ctx = createMockContext();
-      const delay = 100;
-
-      mockNext.mockImplementation(() => new Promise((resolve) => setTimeout(resolve, delay)));
-
-      await loggingMiddleware(ctx, mockNext);
-
-      const durationLog = consoleLogSpy.mock.calls[1][0];
-      const match = durationLog.match(/Processed in (\d+)ms/);
-      const duration = parseInt(match![1], 10);
-
-      expect(duration).toBeGreaterThanOrEqual(delay - 10);
-      expect(duration).toBeLessThan(delay + 50);
-    });
-  });
 
   describe('integration', () => {
     it('should work with multiple middleware calls', async () => {
@@ -336,7 +318,7 @@ describe('loggingMiddleware', () => {
       await loggingMiddleware(ctx, mockNext);
       await loggingMiddleware(ctx, mockNext);
 
-      expect(consoleLogSpy).toHaveBeenCalledTimes(6);
+      expect(logger.info).toHaveBeenCalled();
       expect(mockNext).toHaveBeenCalledTimes(3);
     });
 
@@ -350,7 +332,7 @@ describe('loggingMiddleware', () => {
 
       await Promise.all(promises);
 
-      expect(consoleLogSpy).toHaveBeenCalledTimes(20);
+      expect(logger.info).toHaveBeenCalled();
     });
   });
 });

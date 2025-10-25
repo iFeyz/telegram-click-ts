@@ -12,6 +12,7 @@ import type { IClickRepository } from '../../domain/repositories/IClickRepositor
 import type { ILeaderboardRepository } from '../../domain/repositories/ILeaderboardRepository';
 import type { IRateLimiterRepository } from '../../domain/repositories/IRateLimiterRepository';
 import type { ISessionRepository } from '../../domain/repositories/ISessionRepository';
+import { logger } from '../../infrastructure/observability/logger';
 
 /**
  * Dependency Injection Container
@@ -67,7 +68,7 @@ export class DIContainer {
     this.services.set('batchSaveWorker', batchSaveWorker);
     batchSaveWorker.start();
 
-    console.log('DI Container initialized successfully');
+    logger.info({ message: 'DI Container initialized successfully' });
 
     // Start the Telegram bot
     await bot.start();
@@ -198,7 +199,7 @@ export class DIContainer {
 
     await redisClient.disconnect();
     this.services.clear();
-    console.log('DI Container cleaned up');
+    logger.info({ message: 'DI Container cleaned up' });
   }
 }
 

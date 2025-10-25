@@ -1,6 +1,8 @@
 import type { BotMiddleware } from '../types';
 import { container } from '../../../shared/container/DIContainer';
 import { RateLimitError } from '../../../shared/errors';
+import { logger } from '../../observability/logger';
+import { BotEvents } from '../../observability/events';
 
 export const rateLimitMiddleware: BotMiddleware = async (ctx, next) => {
   if (!ctx.message && !ctx.callbackQuery) {
@@ -23,25 +25,35 @@ export const rateLimitMiddleware: BotMiddleware = async (ctx, next) => {
     const globalResult = await rateLimiter.checkRateLimit('global:telegram', 30, 1);
 
     if (!globalResult.allowed) {
-      console.warn(
-        `[GLOBAL RATE LIMIT] Bot reached Telegram's global limit. Remaining: ${globalResult.remaining}/30 msg/sec`,
-      );
+      logger.warn({
+        event: BotEvents.RATE_LIMIT_HIT,
+        limitType: 'global',
+        remaining: globalResult.remaining,
+        max: 30,
+      });
       throw new RateLimitError(globalResult.resetAt);
     }
 
     const chatResult = await rateLimiter.checkTelegramRateLimit(chatId, 20);
 
     if (!chatResult.allowed) {
-      console.warn(
-        `[CHAT RATE LIMIT] Chat ${chatId} exceeded limit. User: ${username} (${userId})`,
-      );
+      logger.warn({
+        event: BotEvents.RATE_LIMIT_HIT,
+        limitType: 'chat',
+        chatId,
+        username,
+        userId,
+      });
       throw new RateLimitError(chatResult.resetAt);
     }
 
     if (globalResult.remaining < 10) {
-      console.warn(
-        `[RATE LIMIT WARNING] Global limit low: ${globalResult.remaining}/30 messages remaining`,
-      );
+      logger.warn({
+        event: BotEvents.RATE_LIMIT_APPROACHING,
+        limitType: 'global',
+        remaining: globalResult.remaining,
+        max: 30,
+      });
     }
   }
 

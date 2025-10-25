@@ -8,6 +8,7 @@ import { redisClient } from '../../infrastructure/redis/client';
 import { config } from '../../shared/config/env';
 import type { IMessageQueue } from '../../domain/interfaces/IMessageQueue';
 import { TelegramApiError } from '../../shared/errors';
+import { logger } from '../../infrastructure/observability/logger';
 
 interface TelegramRateLimitError {
   error_code: number;
@@ -87,35 +88,45 @@ export class MessageQueueService implements IMessageQueue {
       try {
         if (data.channel) {
           const channel = ActionChannel.deserialize(data.channel);
-          const isLatest = await this.isLatestInChannel(data.chatId, channel, job.id!.toString());
 
-          if (!isLatest) {
-            console.log(
-              `[QUEUE] Skipped superseded job ${job.id} for ${data.chatId} in channel ${channel.fullName}`,
-            );
-            return { skipped: true, reason: 'superseded', chatId: data.chatId };
+          if (channel.isReplaceable) {
+            const isLatest = await this.isLatestInChannel(data.chatId, channel, job.id!.toString());
+
+            if (!isLatest) {
+              logger.debug({
+                message: 'Skipped superseded job',
+                jobId: job.id,
+                chatId: data.chatId,
+                channel: channel.fullName,
+              });
+              return { skipped: true, reason: 'superseded', chatId: data.chatId };
+            }
           }
         }
 
         if (data.type === 'action' && data.action) {
           await data.action();
-          console.log(`[QUEUE] Action executed: ${data.description || 'unknown'}`);
-        } else if (data.type === 'message' && data.message) {
+          logger.debug({ message: 'Action executed', description: data.description || 'unknown' });
+        } else if (data.type === 'message' && data.message !== undefined) {
           await this.bot.api.sendMessage(data.chatId, data.message, data.options);
-          console.log(`[QUEUE] Message sent to chat ${data.chatId}`);
+          logger.debug({ message: 'Message sent', chatId: data.chatId });
         } else if (data.type === 'edit' && data.action) {
           await data.action();
-          console.log(`[QUEUE] Edit executed for chat ${data.chatId}`);
+          logger.debug({ message: 'Edit executed', chatId: data.chatId });
         }
 
         return { success: true, chatId: data.chatId };
       } catch (error) {
         if (isTelegramRateLimitError(error)) {
           const retryAfter = error.parameters?.retry_after || 1;
-          console.error(`[QUEUE] Rate limited! Retry after ${retryAfter}s`);
+          logger.error({ message: 'Rate limited', retryAfterSeconds: retryAfter });
           throw new TelegramApiError(error.error_code, error.description);
         }
-        console.error(`[QUEUE] Failed to process job for ${data.chatId}:`, error);
+        logger.error({
+          message: 'Failed to process job',
+          chatId: data.chatId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     });
@@ -123,25 +134,25 @@ export class MessageQueueService implements IMessageQueue {
 
   private setupEventHandlers(): void {
     this.queue.on('completed', async (job, result) => {
-      console.log(`[QUEUE] Job ${job.id} completed:`, result);
+      logger.debug({ message: 'Job completed', jobId: job.id, result });
       await this.cleanupChannelTracking(job.data);
     });
 
     this.queue.on('failed', async (job, err) => {
-      console.error(`[QUEUE] Job ${job?.id} failed:`, err.message);
+      logger.error({ message: 'Job failed', jobId: job?.id, error: err.message });
       if (job) {
         await this.cleanupChannelTracking(job.data);
       }
     });
 
     this.queue.on('stalled', (job) => {
-      console.warn(`[QUEUE] Job ${job.id} stalled and will be retried`);
+      logger.warn({ message: 'Job stalled and will be retried', jobId: job.id });
     });
 
     setInterval(async () => {
       const counts = await this.queue.getJobCounts();
       if (counts.waiting > 1000 || counts.delayed > 500) {
-        console.warn('[QUEUE WARNING] High queue load:', counts);
+        logger.warn({ message: 'High queue load', counts });
       }
     }, 10000);
   }
@@ -265,7 +276,7 @@ export class MessageQueueService implements IMessageQueue {
     message: string,
     options?: ActionJob['options'],
   ): Promise<void> {
-    console.log(`[BROADCAST] Queuing message for ${chatIds.length} users`);
+    logger.info({ message: 'Queuing broadcast message', userCount: chatIds.length });
 
     const chunkSize = TELEGRAM_LIMITS.MAX_RECIPIENTS_PER_BROADCAST;
     const chunks = [];
@@ -295,10 +306,10 @@ export class MessageQueueService implements IMessageQueue {
         );
       }
 
-      console.log(`[BROADCAST] Queued chunk ${i + 1}/${chunks.length}`);
+      logger.debug({ message: 'Queued broadcast chunk', chunk: i + 1, total: chunks.length });
     }
 
-    console.log(`[BROADCAST] All messages queued successfully`);
+    logger.info({ message: 'All broadcast messages queued successfully' });
   }
 
   /**
@@ -324,7 +335,7 @@ export class MessageQueueService implements IMessageQueue {
    */
   async pause(): Promise<void> {
     await this.queue.pause();
-    console.log('[QUEUE] Processing paused');
+    logger.info({ message: 'Queue processing paused' });
   }
 
   /**
@@ -332,7 +343,7 @@ export class MessageQueueService implements IMessageQueue {
    */
   async resume(): Promise<void> {
     await this.queue.resume();
-    console.log('[QUEUE] Processing resumed');
+    logger.info({ message: 'Queue processing resumed' });
   }
 
   /**
@@ -340,7 +351,7 @@ export class MessageQueueService implements IMessageQueue {
    */
   async clear(): Promise<void> {
     await this.queue.empty();
-    console.log('[QUEUE] All jobs cleared');
+    logger.info({ message: 'All jobs cleared from queue' });
   }
 
   /**
@@ -348,7 +359,7 @@ export class MessageQueueService implements IMessageQueue {
    */
   async shutdown(): Promise<void> {
     await this.queue.close();
-    console.log('[QUEUE] Queue closed');
+    logger.info({ message: 'Queue closed' });
   }
 
   private async trackChannelJob(
@@ -378,12 +389,19 @@ export class MessageQueueService implements IMessageQueue {
 
       if (state === 'waiting' || state === 'delayed') {
         await previousJob.remove();
-        console.log(
-          `[QUEUE] Removed superseded job ${previousJobId} for ${chatId} in channel ${channel.fullName}`,
-        );
+        logger.debug({
+          message: 'Removed superseded job',
+          previousJobId,
+          chatId,
+          channel: channel.fullName,
+        });
       }
     } catch (error) {
-      console.log(`[QUEUE] Could not remove job ${previousJobId}:`, (error as Error).message);
+      logger.debug({
+        message: 'Could not remove previous job',
+        previousJobId,
+        error: (error as Error).message,
+      });
     }
   }
 
@@ -402,10 +420,6 @@ export class MessageQueueService implements IMessageQueue {
 
     const channel = ActionChannel.deserialize(jobData.channel);
     const key = channel.getTrackingKey(jobData.chatId);
-    const currentJobId = await this.redis.get(key);
-
-    if (currentJobId === jobData.chatId) {
-      await this.redis.del(key);
-    }
+    await this.redis.del(key);
   }
 }

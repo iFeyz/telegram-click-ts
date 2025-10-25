@@ -30,9 +30,8 @@ if (observabilityConfig.enabled && observabilityConfig.prometheus.enabled) {
   sdk.start();
 
   process.on('SIGTERM', () => {
-    sdk
-      ?.shutdown()
-      .then(() => console.log('OpenTelemetry SDK shut down'))
-      .catch((error: Error) => console.error('Error shutting down SDK', error));
+    sdk?.shutdown().catch((error: Error) => {
+      console.error('Error shutting down OpenTelemetry SDK', error);
+    });
   });
 }

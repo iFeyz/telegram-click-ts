@@ -2,6 +2,8 @@ import type { BotContext } from '../types';
 import { NavigationKeyboards } from '../keyboards/navigationKeyboard';
 import { EMOJIS } from '../../../shared/constants';
 import { container } from '../../../shared/container/DIContainer';
+import { logger } from '../../observability/logger';
+import { BotEvents } from '../../observability/events';
 
 /**
  * Handle all navigation callbacks from inline keyboards
@@ -40,7 +42,11 @@ export async function handleNavigation(ctx: BotContext): Promise<void> {
         await handleLegacyCallback(ctx, data);
     }
   } catch (error) {
-    console.error('Navigation error:', error);
+    logger.error({
+      event: BotEvents.BOT_ERROR,
+      message: 'Navigation error',
+      error: error instanceof Error ? error.message : String(error),
+    });
     // Keep using editMessageText for errors since it's editing an existing message
     // This doesn't count against rate limit in the same way as new messages
     await ctx.editMessageText(`${EMOJIS.ERROR} An error occurred. Please try again.`, {
@@ -216,7 +222,10 @@ Rate Limit: ${rateLimit.remaining}/10 remaining
     });
   } catch (error) {
     // If edit fails, log it but don't crash
-    console.error('[CLICK] Failed to update UI:', error);
+    logger.error({
+      message: 'Failed to update UI after click',
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

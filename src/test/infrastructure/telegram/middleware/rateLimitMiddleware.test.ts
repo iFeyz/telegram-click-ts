@@ -2,8 +2,19 @@ import { rateLimitMiddleware } from '../../../../infrastructure/telegram/middlew
 import { container } from '../../../../shared/container/DIContainer';
 import { RateLimitError } from '../../../../shared/errors';
 import type { BotContext } from '../../../../infrastructure/telegram/types';
+import { logger } from '../../../../infrastructure/observability/logger';
 
 jest.mock('../../../../shared/container/DIContainer');
+jest.mock('../../../../infrastructure/observability/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    trace: jest.fn(),
+    fatal: jest.fn(),
+  },
+}));
 
 const createMockContext = (overrides: Partial<BotContext> = {}): BotContext => {
   return {
@@ -118,15 +129,14 @@ describe('rateLimitMiddleware', () => {
         resetAt,
       });
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow(RateLimitError);
       expect(mockNext).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('GLOBAL RATE LIMIT'),
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'rate_limit.hit',
+          limitType: 'global',
+        }),
       );
-
-      consoleWarnSpy.mockRestore();
     });
 
     it('should log warning when global limit is low', async () => {
@@ -144,18 +154,16 @@ describe('rateLimitMiddleware', () => {
         resetAt: new Date(),
       });
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       await rateLimitMiddleware(ctx, mockNext);
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('RATE LIMIT WARNING'),
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'rate_limit.approaching',
+          limitType: 'global',
+          remaining: 5,
+          max: 30,
+        }),
       );
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('5/30'),
-      );
-
-      consoleWarnSpy.mockRestore();
     });
 
     it('should not warn when global limit is at threshold (10)', async () => {
@@ -173,15 +181,13 @@ describe('rateLimitMiddleware', () => {
         resetAt: new Date(),
       });
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       await rateLimitMiddleware(ctx, mockNext);
 
-      expect(consoleWarnSpy).not.toHaveBeenCalledWith(
-        expect.stringContaining('RATE LIMIT WARNING'),
+      expect(logger.warn).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'rate_limit.approaching',
+        }),
       );
-
-      consoleWarnSpy.mockRestore();
     });
 
     it('should include resetAt in thrown error', async () => {
@@ -194,8 +200,6 @@ describe('rateLimitMiddleware', () => {
         resetAt,
       });
 
-      jest.spyOn(console, 'warn').mockImplementation();
-
       try {
         await rateLimitMiddleware(ctx, mockNext);
         fail('Should have thrown RateLimitError');
@@ -203,8 +207,6 @@ describe('rateLimitMiddleware', () => {
         expect(error).toBeInstanceOf(RateLimitError);
         expect((error as RateLimitError).retryAfter).toEqual(resetAt);
       }
-
-      jest.restoreAllMocks();
     });
   });
 
@@ -225,15 +227,14 @@ describe('rateLimitMiddleware', () => {
         resetAt,
       });
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow(RateLimitError);
       expect(mockNext).not.toHaveBeenCalled();
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('CHAT RATE LIMIT'),
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'rate_limit.hit',
+          limitType: 'chat',
+        }),
       );
-
-      consoleWarnSpy.mockRestore();
     });
 
     it('should log chat ID and user info on chat limit', async () => {
@@ -251,19 +252,21 @@ describe('rateLimitMiddleware', () => {
         resetAt: new Date(),
       });
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       try {
         await rateLimitMiddleware(ctx, mockNext);
       } catch (error) {
         // Expected
       }
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringMatching(/987654321.*testuser.*123456789/),
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'rate_limit.hit',
+          limitType: 'chat',
+          chatId: '987654321',
+          username: 'testuser',
+          userId: '123456789',
+        }),
       );
-
-      consoleWarnSpy.mockRestore();
     });
   });
 
@@ -354,19 +357,19 @@ describe('rateLimitMiddleware', () => {
         resetAt: new Date(),
       });
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       try {
         await rateLimitMiddleware(ctx, mockNext);
       } catch (error) {
         // Expected
       }
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('unknown'),
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'rate_limit.hit',
+          limitType: 'chat',
+          username: 'unknown',
+        }),
       );
-
-      consoleWarnSpy.mockRestore();
     });
   });
 
@@ -380,11 +383,7 @@ describe('rateLimitMiddleware', () => {
         resetAt: new Date(),
       });
 
-      jest.spyOn(console, 'warn').mockImplementation();
-
       await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow(RateLimitError);
-
-      jest.restoreAllMocks();
     });
 
     it('should handle concurrent requests', async () => {
@@ -477,14 +476,10 @@ describe('rateLimitMiddleware', () => {
         resetAt: new Date(),
       });
 
-      jest.spyOn(console, 'warn').mockImplementation();
-
       await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow(RateLimitError);
 
       expect(mockRateLimiter.checkTelegramRateLimit).not.toHaveBeenCalled();
       expect(mockNext).not.toHaveBeenCalled();
-
-      jest.restoreAllMocks();
     });
 
     it('should handle different chat types', async () => {
@@ -526,15 +521,16 @@ describe('rateLimitMiddleware', () => {
         resetAt: new Date(),
       });
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       await rateLimitMiddleware(ctx, mockNext);
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('9/30'),
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'rate_limit.approaching',
+          limitType: 'global',
+          remaining: 9,
+          max: 30,
+        }),
       );
-
-      consoleWarnSpy.mockRestore();
     });
 
     it('should warn at 1 remaining (critical)', async () => {
@@ -552,15 +548,16 @@ describe('rateLimitMiddleware', () => {
         resetAt: new Date(),
       });
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       await rateLimitMiddleware(ctx, mockNext);
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('1/30'),
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: 'rate_limit.approaching',
+          limitType: 'global',
+          remaining: 1,
+          max: 30,
+        }),
       );
-
-      consoleWarnSpy.mockRestore();
     });
   });
 });

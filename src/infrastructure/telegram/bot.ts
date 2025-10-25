@@ -16,6 +16,8 @@ import {
   helpCommand,
 } from './handlers';
 import { handleNavigation } from './handlers/navigationHandler';
+import { logger } from '../observability/logger';
+import { BotEvents } from '../observability/events';
 
 export class TelegramBot {
   private bot: Bot<BotContext>;
@@ -120,7 +122,7 @@ export class TelegramBot {
    */
   public async start(): Promise<void> {
     if (this.isRunning) {
-      console.log('Bot is already running');
+      logger.warn({ message: 'Bot is already running' });
       return;
     }
 
@@ -128,12 +130,19 @@ export class TelegramBot {
       await this.setBotCommands();
       await this.bot.start({
         onStart: () => {
-          console.log('Telegram bot started successfully');
+          logger.info({
+            event: BotEvents.BOT_STARTED,
+            message: 'Telegram bot started successfully',
+          });
           this.isRunning = true;
         },
       });
     } catch (error) {
-      console.error('Failed to start bot:', error);
+      logger.error({
+        event: BotEvents.BOT_ERROR,
+        message: 'Failed to start bot',
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -148,7 +157,7 @@ export class TelegramBot {
 
     await this.bot.stop();
     this.isRunning = false;
-    console.log('Telegram bot stopped');
+    logger.info({ event: BotEvents.BOT_STOPPED, message: 'Telegram bot stopped' });
   }
 
   /**

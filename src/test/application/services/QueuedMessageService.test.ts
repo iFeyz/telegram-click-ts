@@ -2,6 +2,18 @@ import { QueuedMessageService } from '../../../application/services/QueuedMessag
 import type { MessageQueueService } from '../../../application/services/MessageQueueService';
 import { ActionChannel } from '../../../domain/value-objects/ActionChannel';
 import { InlineKeyboard } from 'grammy';
+import { logger } from '../../../infrastructure/observability/logger';
+
+jest.mock('../../../infrastructure/observability/logger', () => ({
+  logger: {
+    info: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn(),
+    trace: jest.fn(),
+    fatal: jest.fn(),
+  },
+}));
 
 describe('QueuedMessageService', () => {
   let service: QueuedMessageService;
@@ -77,18 +89,17 @@ describe('QueuedMessageService', () => {
     it('should handle errors gracefully', async () => {
       const chatId = 'chat-123';
       const message = 'Test message';
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       mockMessageQueue.queueMessage.mockRejectedValueOnce(new Error('Queue full'));
 
       await service.sendMessage(chatId, message);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to queue message'),
-        expect.any(Error),
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Failed to queue message',
+          chatId,
+        }),
       );
-
-      consoleErrorSpy.mockRestore();
     });
 
     it('should not throw errors when queueing fails', async () => {
@@ -168,18 +179,17 @@ describe('QueuedMessageService', () => {
     it('should handle priority queueing errors gracefully', async () => {
       const chatId = 'chat-123';
       const message = 'Priority test';
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       mockMessageQueue.queueMessage.mockRejectedValueOnce(new Error('Queue error'));
 
       await service.sendPriorityMessage(chatId, message);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to queue priority message'),
-        expect.any(Error),
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Failed to queue priority message',
+          chatId,
+        }),
       );
-
-      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -206,18 +216,17 @@ describe('QueuedMessageService', () => {
     it('should handle notification errors gracefully', async () => {
       const chatId = 'chat-123';
       const message = 'Notification test';
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
       mockMessageQueue.queueMessage.mockRejectedValueOnce(new Error('Failed'));
 
       await service.sendNotification(chatId, message);
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to queue notification'),
-        expect.any(Error),
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Failed to queue notification',
+          chatId,
+        }),
       );
-
-      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -229,14 +238,16 @@ describe('QueuedMessageService', () => {
     it('should broadcast message to multiple chats', async () => {
       const chatIds = ['chat-1', 'chat-2', 'chat-3'];
       const message = 'System announcement';
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
       await service.broadcastMessage(chatIds, message);
 
       expect(mockMessageQueue.broadcastMessage).toHaveBeenCalledWith(chatIds, message, undefined);
-      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Broadcasting to 3 users'));
-
-      consoleWarnSpy.mockRestore();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Broadcasting message',
+          userCount: 3,
+        }),
+      );
     });
 
     it('should broadcast with options', async () => {
@@ -277,17 +288,16 @@ describe('QueuedMessageService', () => {
     });
 
     it('should handle leaderboard update errors gracefully', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
       mockMessageQueue.queueMessage.mockRejectedValueOnce(new Error('Failed'));
 
       await service.sendLeaderboardUpdate('chat-123', 'Leaderboard');
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to queue leaderboard update'),
-        expect.any(Error),
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Failed to queue leaderboard update',
+          chatId: 'chat-123',
+        }),
       );
-
-      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -325,17 +335,16 @@ describe('QueuedMessageService', () => {
     });
 
     it('should handle error message failures gracefully', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
       mockMessageQueue.queueMessage.mockRejectedValueOnce(new Error('Failed'));
 
       await service.sendError('chat-123', 'Test error');
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to send error message'),
-        expect.any(Error),
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Failed to send error message',
+          chatId: 'chat-123',
+        }),
       );
-
-      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -375,17 +384,16 @@ describe('QueuedMessageService', () => {
     });
 
     it('should handle action queueing errors gracefully', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
       mockMessageQueue.queueAction.mockRejectedValueOnce(new Error('Failed'));
 
       await service.queueNavigationAction('chat-123', async () => {});
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to queue action'),
-        expect.any(Error),
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Failed to queue action',
+          chatId: 'chat-123',
+        }),
       );
-
-      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -416,17 +424,16 @@ describe('QueuedMessageService', () => {
     });
 
     it('should handle edit errors gracefully', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
       mockMessageQueue.queueEdit.mockRejectedValueOnce(new Error('Failed'));
 
       await service.queueMessageEdit('chat-123', async () => {});
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Failed to queue edit'),
-        expect.any(Error),
+      expect(logger.error).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Failed to queue edit',
+          chatId: 'chat-123',
+        }),
       );
-
-      consoleErrorSpy.mockRestore();
     });
   });
 
@@ -530,16 +537,14 @@ describe('QueuedMessageService', () => {
     });
 
     it('should pause message queue', async () => {
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       await service.pauseNonCritical();
 
       expect(mockMessageQueue.pause).toHaveBeenCalled();
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Paused non-critical messages due to high load'),
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Paused non-critical messages due to high load',
+        }),
       );
-
-      consoleWarnSpy.mockRestore();
     });
   });
 
@@ -549,14 +554,14 @@ describe('QueuedMessageService', () => {
     });
 
     it('should resume message queue', async () => {
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-
       await service.resume();
 
       expect(mockMessageQueue.resume).toHaveBeenCalled();
-      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Resumed message processing'));
-
-      consoleWarnSpy.mockRestore();
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Resumed message processing',
+        }),
+      );
     });
   });
 

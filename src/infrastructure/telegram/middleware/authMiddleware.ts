@@ -2,6 +2,8 @@ import type { BotMiddleware } from '../types';
 import { container } from '../../../shared/container/DIContainer';
 import { User } from '../../../domain/entities/User';
 import { Session } from '../../../domain/entities/Session';
+import { logger } from '../../observability/logger';
+import { BotEvents } from '../../observability/events';
 
 export const authMiddleware: BotMiddleware = async (ctx, next) => {
   if (!ctx.from || ctx.from.is_bot) {
@@ -29,7 +31,12 @@ export const authMiddleware: BotMiddleware = async (ctx, next) => {
         },
       });
 
-      console.log(`New user registered: ${dbUser.telegramId}`);
+      logger.info({
+        event: BotEvents.USER_JOINED,
+        userId: dbUser.id,
+        telegramId: String(dbUser.telegramId),
+        username: dbUser.username,
+      });
     }
 
     ctx.session.user = new User({

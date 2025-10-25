@@ -12,3 +12,4 @@ export * from './fixtures/userFixtures';
 export * from './fixtures/sessionFixtures';
 export * from './fixtures/clickFixtures';
 export * from './fixtures/leaderboardFixtures';
+export * from './fixtures/observabilityFixtures';

@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import { config } from '../../shared/config/env';
 import { RedisError } from '../../shared/errors';
+import { logger } from '../observability/logger';
 
 export class RedisClient {
   private client: Redis | null = null;
@@ -33,15 +34,15 @@ export class RedisClient {
     });
 
     this.client.on('error', (error) => {
-      console.error('Redis client error:', error);
+      logger.error({ message: 'Redis client error', error: error.message });
     });
 
     this.client.on('connect', () => {
-      console.log('Redis client connected');
+      logger.info({ message: 'Redis client connected' });
     });
 
     this.client.on('ready', () => {
-      console.log('Redis client ready');
+      logger.info({ message: 'Redis client ready' });
     });
 
     await this.client.ping();
