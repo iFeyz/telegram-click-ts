@@ -1,19 +1,10 @@
 import type Redis from 'ioredis';
-import { RedisMock } from '../mocks/redisMock';
+
 
 export class RedisTestHelper {
   constructor(private redis: Redis) {}
 
-  async clearAll(): Promise<void> {
-    if (this.redis instanceof RedisMock) {
-      await this.redis.flushall();
-    } else {
-      const keys = await this.redis.keys('*');
-      if (keys.length > 0) {
-        await this.redis.del(...keys);
-      }
-    }
-  }
+
 
   async clearPattern(pattern: string): Promise<void> {
     const keys = await this.redis.keys(pattern);

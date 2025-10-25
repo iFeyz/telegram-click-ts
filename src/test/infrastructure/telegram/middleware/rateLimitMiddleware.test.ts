@@ -1,0 +1,566 @@
+import { rateLimitMiddleware } from '../../../../infrastructure/telegram/middleware/rateLimitMiddleware';
+import { container } from '../../../../shared/container/DIContainer';
+import { RateLimitError } from '../../../../shared/errors';
+import type { BotContext } from '../../../../infrastructure/telegram/types';
+
+jest.mock('../../../../shared/container/DIContainer');
+
+const createMockContext = (overrides: Partial<BotContext> = {}): BotContext => {
+  return {
+    from: {
+      id: 123456789,
+      username: 'testuser',
+      first_name: 'Test',
+      is_bot: false,
+    },
+    chat: {
+      id: 987654321,
+      type: 'private',
+    },
+    message: {
+      text: '/start',
+      message_id: 1,
+      date: Date.now(),
+    },
+    ...overrides,
+  } as unknown as BotContext;
+};
+
+describe('rateLimitMiddleware', () => {
+  let mockRateLimiter: any;
+  let mockNext: jest.Mock;
+
+  beforeEach(() => {
+    mockRateLimiter = {
+      checkRateLimit: jest.fn(),
+      checkTelegramRateLimit: jest.fn(),
+    };
+
+    mockNext = jest.fn();
+
+    (container.getRateLimiterRepository as jest.Mock).mockReturnValue(mockRateLimiter);
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('normal operation', () => {
+    it('should proceed when rate limits are not exceeded', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 20,
+        resetAt: new Date(Date.now() + 1000),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 15,
+        resetAt: new Date(Date.now() + 1000),
+      });
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(mockNext).toHaveBeenCalledTimes(1);
+    });
+
+    it('should check global rate limit first', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(mockRateLimiter.checkRateLimit).toHaveBeenCalledWith('global:telegram', 30, 1);
+    });
+
+    it('should check chat-specific rate limit', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(mockRateLimiter.checkTelegramRateLimit).toHaveBeenCalledWith('987654321', 20);
+    });
+  });
+
+  describe('global rate limit', () => {
+    it('should throw RateLimitError when global limit exceeded', async () => {
+      const ctx = createMockContext();
+      const resetAt = new Date(Date.now() + 5000);
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt,
+      });
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow(RateLimitError);
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('GLOBAL RATE LIMIT'),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should log warning when global limit is low', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 5,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('RATE LIMIT WARNING'),
+      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('5/30'),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should not warn when global limit is at threshold (10)', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 10,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(consoleWarnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('RATE LIMIT WARNING'),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should include resetAt in thrown error', async () => {
+      const ctx = createMockContext();
+      const resetAt = new Date(Date.now() + 3000);
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt,
+      });
+
+      jest.spyOn(console, 'warn').mockImplementation();
+
+      try {
+        await rateLimitMiddleware(ctx, mockNext);
+        fail('Should have thrown RateLimitError');
+      } catch (error) {
+        expect(error).toBeInstanceOf(RateLimitError);
+        expect((error as RateLimitError).retryAfter).toEqual(resetAt);
+      }
+
+      jest.restoreAllMocks();
+    });
+  });
+
+  describe('chat rate limit', () => {
+    it('should throw RateLimitError when chat limit exceeded', async () => {
+      const ctx = createMockContext();
+      const resetAt = new Date(Date.now() + 2000);
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt,
+      });
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow(RateLimitError);
+      expect(mockNext).not.toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('CHAT RATE LIMIT'),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should log chat ID and user info on chat limit', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: new Date(),
+      });
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      try {
+        await rateLimitMiddleware(ctx, mockNext);
+      } catch (error) {
+        // Expected
+      }
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/987654321.*testuser.*123456789/),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+
+  describe('bypass scenarios', () => {
+    it('should skip rate limiting for non-message/non-callback updates', async () => {
+      const ctx = createMockContext({
+        message: undefined,
+        callbackQuery: undefined,
+      });
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(mockRateLimiter.checkRateLimit).not.toHaveBeenCalled();
+      expect(mockRateLimiter.checkTelegramRateLimit).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledTimes(1);
+    });
+
+    it('should skip rate limiting when userId is missing', async () => {
+      const ctx = createMockContext({
+        from: undefined,
+      });
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(mockRateLimiter.checkRateLimit).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledTimes(1);
+    });
+
+    it('should skip rate limiting when chat is missing', async () => {
+      const ctx = createMockContext({
+        chat: undefined,
+      });
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(mockRateLimiter.checkRateLimit).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledTimes(1);
+    });
+
+    it('should process callback queries', async () => {
+      const ctx = createMockContext({
+        message: undefined,
+        callbackQuery: {
+          data: 'some_data',
+          id: 'callback-1',
+        } as any,
+      });
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(mockRateLimiter.checkRateLimit).toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('user identification', () => {
+    it('should handle user without username', async () => {
+      const ctx = createMockContext({
+        from: {
+          id: 123456789,
+          username: undefined,
+          first_name: 'Test',
+          is_bot: false,
+        } as any,
+      });
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: new Date(),
+      });
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      try {
+        await rateLimitMiddleware(ctx, mockNext);
+      } catch (error) {
+        // Expected
+      }
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('unknown'),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should handle exactly 0 remaining in global limit', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: new Date(),
+      });
+
+      jest.spyOn(console, 'warn').mockImplementation();
+
+      await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow(RateLimitError);
+
+      jest.restoreAllMocks();
+    });
+
+    it('should handle concurrent requests', async () => {
+      const ctx1 = createMockContext();
+      const ctx2 = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      await Promise.all([
+        rateLimitMiddleware(ctx1, mockNext),
+        rateLimitMiddleware(ctx2, mockNext),
+      ]);
+
+      expect(mockNext).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle rate limiter errors', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockRejectedValueOnce(new Error('Redis connection lost'));
+
+      await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow('Redis connection lost');
+      expect(mockNext).not.toHaveBeenCalled();
+    });
+
+    it('should convert chat ID to string', async () => {
+      const ctx = createMockContext({
+        chat: { id: 999888777, type: 'private' } as any,
+      });
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(mockRateLimiter.checkTelegramRateLimit).toHaveBeenCalledWith('999888777', 20);
+    });
+  });
+
+  describe('integration scenarios', () => {
+    it('should handle burst of requests with declining limits', async () => {
+      const ctx = createMockContext();
+
+      for (let i = 30; i > 0; i--) {
+        mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+          allowed: i > 0,
+          remaining: i - 1,
+          resetAt: new Date(Date.now() + 1000),
+        });
+
+        mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+          allowed: true,
+          remaining: 15,
+          resetAt: new Date(Date.now() + 1000),
+        });
+
+        if (i > 0) {
+          await rateLimitMiddleware(ctx, mockNext);
+        }
+      }
+
+      expect(mockNext).toHaveBeenCalledTimes(30);
+    });
+
+    it('should stop processing once limit is hit', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: false,
+        remaining: 0,
+        resetAt: new Date(),
+      });
+
+      jest.spyOn(console, 'warn').mockImplementation();
+
+      await expect(rateLimitMiddleware(ctx, mockNext)).rejects.toThrow(RateLimitError);
+
+      expect(mockRateLimiter.checkTelegramRateLimit).not.toHaveBeenCalled();
+      expect(mockNext).not.toHaveBeenCalled();
+
+      jest.restoreAllMocks();
+    });
+
+    it('should handle different chat types', async () => {
+      const groupCtx = createMockContext({
+        chat: { id: 111222333, type: 'group' } as any,
+      });
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 25,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      await rateLimitMiddleware(groupCtx, mockNext);
+
+      expect(mockRateLimiter.checkTelegramRateLimit).toHaveBeenCalledWith('111222333', 20);
+    });
+  });
+
+  describe('warning threshold behavior', () => {
+    it('should warn at 9 remaining (below 10)', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 9,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('9/30'),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should warn at 1 remaining (critical)', async () => {
+      const ctx = createMockContext();
+
+      mockRateLimiter.checkRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 1,
+        resetAt: new Date(),
+      });
+
+      mockRateLimiter.checkTelegramRateLimit.mockResolvedValueOnce({
+        allowed: true,
+        remaining: 18,
+        resetAt: new Date(),
+      });
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      await rateLimitMiddleware(ctx, mockNext);
+
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('1/30'),
+      );
+
+      consoleWarnSpy.mockRestore();
+    });
+  });
+});

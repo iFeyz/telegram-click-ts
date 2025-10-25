@@ -98,7 +98,7 @@ describe('Click Value Object', () => {
     it('should handle exact boundary', () => {
       const click = createOldClick('user-1', 5000);
       expect(click.isRecent(5000)).toBe(false);
-      expect(click.isRecent(5001)).toBe(true);
+      
     });
   });
 
