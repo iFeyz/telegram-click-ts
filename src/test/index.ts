@@ -1,4 +1,3 @@
-export * from './mocks/redisMock';
 export * from './mocks/prismaMock';
 export * from './mocks/grammyMock';
 export * from './mocks/bullMock';

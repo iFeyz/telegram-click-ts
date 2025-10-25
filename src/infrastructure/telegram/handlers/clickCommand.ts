@@ -4,6 +4,8 @@ import { container } from '../../../shared/container/DIContainer';
 import { EMOJIS, GAME_SETTINGS } from '../../../shared/constants';
 import { Click } from '../../../domain/value-objects/Click';
 import { RateLimitError } from '../../../shared/errors';
+import { logger } from '../../observability/logger';
+import { BotEvents } from '../../observability/events';
 
 export const clickCommand: CommandHandler = async (ctx) => {
   const user = ctx.session.user;
@@ -25,9 +27,13 @@ export const clickCommand: CommandHandler = async (ctx) => {
 
   if (!rateLimit.allowed) {
     const waitSeconds = Math.ceil((rateLimit.resetAt.getTime() - Date.now()) / 1000);
-    console.error(
-      `[RATE LIMIT] User ${user.id} (${user.getDisplayName()}) exceeded click rate limit. Must wait ${waitSeconds}s`,
-    );
+    logger.warn({
+      event: BotEvents.RATE_LIMIT_HIT,
+      userId: user.id,
+      username: user.getDisplayName(),
+      limitType: 'click',
+      waitSeconds,
+    });
     throw new RateLimitError(rateLimit.resetAt);
   }
 
@@ -97,6 +103,11 @@ Remaining: <b>${rateLimit.remaining}/${GAME_SETTINGS.MAX_CLICKS_PER_SECOND}</b> 
       );
     }
   } catch (error) {
+    logger.error({
+      event: BotEvents.CLICK_FAILED,
+      userId: user.id,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     if (error instanceof Error) {
       await queuedMessageService.sendError(chatId, error.message);
     } else {

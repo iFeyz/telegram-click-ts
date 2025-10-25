@@ -2,6 +2,8 @@ import type { CommandHandler } from '../types';
 import { container } from '../../../shared/container/DIContainer';
 import { EMOJIS } from '../../../shared/constants';
 import { LeaderboardEntry } from '../../../domain/value-objects/LeaderboardEntry';
+import { logger } from '../../observability/logger';
+import { BotEvents } from '../../observability/events';
 
 export const leaderboardCommand: CommandHandler = async (ctx) => {
   const user = ctx.session.user;
@@ -17,6 +19,11 @@ export const leaderboardCommand: CommandHandler = async (ctx) => {
 
   const queuedMessageService = container.getQueuedMessageService();
   const leaderboardRepo = container.getLeaderboardRepository();
+
+  logger.debug({
+    event: BotEvents.LEADERBOARD_LOADED,
+    userId: user.id,
+  });
 
   const topPlayers = await leaderboardRepo.getFullLeaderboard(10);
 

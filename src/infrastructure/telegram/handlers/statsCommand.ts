@@ -1,6 +1,8 @@
 import type { CommandHandler } from '../types';
 import { container } from '../../../shared/container/DIContainer';
 import { EMOJIS } from '../../../shared/constants';
+import { logger } from '../../observability/logger';
+import { BotEvents } from '../../observability/events';
 
 export const statsCommand: CommandHandler = async (ctx) => {
   const user = ctx.session.user;
@@ -19,6 +21,11 @@ export const statsCommand: CommandHandler = async (ctx) => {
   const leaderboardRepo = container.getLeaderboardRepository();
   const clickRepo = container.getClickRepository();
   const sessionRepo = container.getSessionRepository();
+
+  logger.debug({
+    event: BotEvents.STATS_VIEWED,
+    userId: user.id,
+  });
 
   const userRank = await leaderboardRepo.getUserRank(user.id);
   const pendingClicks = await clickRepo.getPendingClicks(user.id);

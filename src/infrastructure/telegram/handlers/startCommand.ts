@@ -2,6 +2,8 @@ import { InlineKeyboard } from 'grammy';
 import type { CommandHandler } from '../types';
 import { EMOJIS } from '../../../shared/constants';
 import { container } from '../../../shared/container/DIContainer';
+import { logger } from '../../observability/logger';
+import { BotEvents } from '../../observability/events';
 
 export const startCommand: CommandHandler = async (ctx) => {
   const user = ctx.session.user;
@@ -12,6 +14,12 @@ export const startCommand: CommandHandler = async (ctx) => {
 
   const chatId = ctx.chat?.id.toString();
   if (!chatId) return;
+
+  logger.debug({
+    event: BotEvents.USER_JOINED,
+    userId: user.id,
+    username: user.getDisplayName(),
+  });
 
   const queuedMessageService = container.getQueuedMessageService();
 

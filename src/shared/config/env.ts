@@ -22,6 +22,12 @@ function getEnvNumber(key: string, defaultValue?: number): number {
   return parsed;
 }
 
+function getEnvBoolean(key: string, defaultValue: boolean): boolean {
+  const value = process.env[key];
+  if (!value) return defaultValue;
+  return value.toLowerCase() === 'true';
+}
+
 export const config = {
   telegram: {
     botToken: getEnvVariable('BOT_TOKEN'),
@@ -61,4 +67,11 @@ export const config = {
   queue: {
     channelTrackingTtlSeconds: getEnvNumber('QUEUE_CHANNEL_TTL_SECONDS', 300),
   },
+  ENABLE_OBSERVABILITY: getEnvBoolean('ENABLE_OBSERVABILITY', true),
+  ENABLE_LOKI: getEnvBoolean('ENABLE_LOKI', true),
+  ENABLE_METRICS: getEnvBoolean('ENABLE_METRICS', true),
+  LOKI_URL: getEnvVariable('LOKI_URL', 'http://localhost:3100'),
+  PROMETHEUS_PORT: getEnvNumber('PROMETHEUS_PORT', 9464),
+  LOG_LEVEL: getEnvVariable('LOG_LEVEL', 'info'),
+  NODE_ENV: getEnvVariable('NODE_ENV', 'development'),
 } as const;
